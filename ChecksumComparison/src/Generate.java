@@ -148,7 +148,7 @@ public class Generate {
 	private String preparePath(String System, String SequnceNumber, String SequenceName) {
 		String path = preparePathATKPlus(System, SequnceNumber, SequenceName);
 		if (!isValidFile(path)) {
-			path = preparePathATK32(System, SequnceNumber, SequenceName);
+			path = preparePathATK32(System, completeSequenceNumber(SequnceNumber), SequenceName);
 		}
 		return path;
 	}
