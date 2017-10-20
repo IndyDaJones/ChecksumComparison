@@ -5,6 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Hashtable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 /**
@@ -17,6 +18,7 @@ public class Generate {
 	DBHandler db;
 	String checksum;
 	FileHandler file;
+	ArrayList<String> sequenceNumbers;
 	public Generate(String Mchecksum){
 		file = new FileHandler();
 		checksum = Mchecksum;
@@ -37,16 +39,28 @@ public class Generate {
 	 */
 	private void calculateChecksum() {
 		log.log(Level.INFO,"Get all FilePaths");
+		sequenceNumbers = new ArrayList<String>();
 		ResultSet folders = db.GetFolderOfFiles();
 		log.log(Level.INFO,"FilePaths gathered!");
 		try {
 			while((folders != null) && (folders.next())) {
 				if(folders.getString(1) != null && folders.getString(2) != null) { // ID // FOLDER
-					ArrayList<String> files = getLatestSequencesFromFolder(folders.getString(2));
-					for ( int i = 0; i < files.size(); i++) {
-						String path = preparePath(folders.getString(2), files.get(i), "");
-						log.log(Level.INFO,"FilePath is " + path);
-						calculateChecksum(path, folders.getString(2), files.get(i));	
+					getSequencesNumbersFromFolder(folders.getString(2));
+				}
+			}
+			Collections.sort(sequenceNumbers.subList(0, sequenceNumbers.size()));
+			folders = db.GetFolderOfFiles();
+			while((folders != null) && (folders.next())) {
+				if(folders.getString(1) != null && folders.getString(2) != null) { // ID // FOLDER
+					Hashtable files = getLatestSequencesFromFolder(folders.getString(2));
+					for ( int i = 0; i < sequenceNumbers.size(); i++) {
+						if (files.containsKey(sequenceNumbers.get(i))) {
+							String path = preparePath(folders.getString(2), sequenceNumbers.get(i), files.get(sequenceNumbers.get(i)).toString());
+							log.log(Level.INFO,"FilePath is " + path);
+							calculateChecksum(path, folders.getString(2), files.get(sequenceNumbers.get(i)).toString());
+						}else {
+							db.insertData(folders.getString(2), sequenceNumbers.get(i), "--" ,"--");
+						}
 					}
 				}
 			}
@@ -111,8 +125,8 @@ public class Generate {
 			File Source = new File(path);
 			log.log(Level.INFO,"Source loaded " + path);
 			String file_checksum = FileHandler.getFileChecksum(checksum, Source);
-			log.log(Level.INFO,"Checksum calculated " + file_checksum + "for sequence with path "+ path);
-			db.insertData(System, System, Sequence ,checksum);
+			log.log(Level.INFO,"Checksum calculated " + file_checksum + " for sequence with path "+ path);
+			db.insertData(System, getSequenceNumberFromFileName(Sequence), getSequenceNameFromFileName(Sequence) ,file_checksum);
 			// Let Thread sleep for a while so that the DB can do it's job properly! (Access DB)
 			Thread.sleep(file.getDBTimeout());
 		}catch (IOException e) {
@@ -134,7 +148,7 @@ public class Generate {
 	private String preparePath(String System, String SequnceNumber, String SequenceName) {
 		String path = preparePathATKPlus(System, SequnceNumber, SequenceName);
 		if (!isValidFile(path)) {
-			path = preparePathATK32(System, SequnceNumber);
+			path = preparePathATK32(System, SequnceNumber, SequenceName);
 		}
 		return path;
 	}
@@ -165,6 +179,27 @@ public class Generate {
 		} 
 		path = "/"+path;
 		path = file.getFileLocation()+path;
+		log.log(Level.INFO,"FilePath is " + path);
+		path = path.replace("/", "\\");
+		
+		return path;
+	}
+	/**
+	 * Prepares the path to the sequence for the checksum calcualtion
+	 * @param System
+	 * @param SequnceNumber
+	 * @param SequenceName
+	 * @return
+	 */
+	private String preparePathATK32(String System, String SequenceNumber, String SequenceName) {
+		String path = "";
+		//FileHandler file = new FileHandler();
+		if(System != null && SequenceNumber != null && SequenceName != null) {
+			//It is a sequence
+			path = file.getFileLocation() +"/"+ System+"/"+SequenceName;
+		}
+		path = path.replace("\\","/");
+		
 		log.log(Level.INFO,"FilePath is " + path);
 		path = path.replace("/", "\\");
 		
@@ -218,8 +253,37 @@ public class Generate {
 	 * @param SequenceNumber
 	 * @return
 	 */
-	private ArrayList<String> getLatestSequencesFromFolder(String System) {
-		String path = file.getFileLocation() +"/"+ System+"/";
+	private Hashtable getLatestSequencesFromFolder(String Folder) {
+		String path = file.getFileLocation() +"/"+ Folder+"/";
+		File rep = new File(path);
+		File[] list = rep.listFiles();
+		rep = null;
+		ArrayList<String> filenames = new ArrayList<String>();
+		for ( int i = 0; i < list.length; i++) {
+			if (list[i].getName().contains("SEQ") && list[i].getName().contains(".SEQ"))
+		    filenames.add(list[i].getName());
+		}
+		Collections.sort(filenames.subList(0, filenames.size()));
+		String version = filenames.get(filenames.size()-1);
+		
+		Hashtable<String, String> result = new Hashtable<String, String>();
+		for ( int i = 0; i < filenames.size(); i++) {
+			String sequenceNumb = getSequenceNumberFromFileName(filenames.get(i));
+			String latestVersion = getLatestSequenceVersion(Folder, sequenceNumb);
+			if(!result.contains(latestVersion)) {
+				result.put(getSequenceNumberFromFileName(latestVersion), latestVersion);
+			}
+		}
+		return result;
+	}
+	/**
+	 * Gives the latest version number from a set of sequences 
+	 * @param System
+	 * @param SequenceNumber
+	 * @return
+	 */
+	private ArrayList<String> getLatestSequencesNumbersFromFolder(String Folder) {
+		String path = file.getFileLocation() +"/"+ Folder+"/";
 		File rep = new File(path);
 		File[] list = rep.listFiles();
 		rep = null;
@@ -234,18 +298,39 @@ public class Generate {
 		ArrayList<String> result = new ArrayList<String>();
 		for ( int i = 0; i < filenames.size(); i++) {
 			String sequenceNumb = getSequenceNumberFromFileName(filenames.get(i));
-			String latestVersion = getLatestSequenceVersion(System, sequenceNumb);
-			log.log(Level.INFO,"FilePath is " + latestVersion);
+			String latestVersion = getLatestSequenceVersion(Folder, sequenceNumb);
 			if(!result.contains(latestVersion)) {
-				result.add(latestVersion);
+				result.add(getSequenceNumberFromFileName(latestVersion));
 			}
 		}
 		return result;
 	}
+	private ArrayList<String> getSequencesNumbersFromFolder(String Folder){
+		String path = file.getFileLocation() +"/"+ Folder+"/";
+		File rep = new File(path);
+		File[] list = rep.listFiles();
+		rep = null;
+		for ( int i = 0; i < list.length; i++) {
+			if (list[i].getName().contains("SEQ") && list[i].getName().contains(".SEQ") && !sequenceNumbers.contains(getSequenceNumberFromFileName(list[i].getName())))
+				sequenceNumbers.add(getSequenceNumberFromFileName(list[i].getName()));
+		}
+		return sequenceNumbers;
+	}
+	/**
+	 * Returns the sequence number from a sequence file name
+	 * @param SequenceFileName
+	 * @return
+	 */
 	private String getSequenceNumberFromFileName(String SequenceFileName) {
-		// SEQ0023_X001Y000.SEQ /[0-9][0-9][0-9][0-9]
-		String result = SequenceFileName.substring(SequenceFileName.indexOf("Q")+1, SequenceFileName.indexOf("X")-1);
-		return result;
+		return SequenceFileName.substring(SequenceFileName.indexOf("Q")+1, SequenceFileName.indexOf("X")-1);
+	}
+	/**
+	 * Returns the sequence name from a sequence file name
+	 * @param SequenceFileName
+	 * @return
+	 */
+	private String getSequenceNameFromFileName(String SequenceFileName) {
+		return SequenceFileName.substring(0, SequenceFileName.indexOf("."));
 	}
 	private boolean isValidFile(String path) {
 		try {

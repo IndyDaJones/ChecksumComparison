@@ -112,7 +112,7 @@ public class DBHandler {
 		Statement s = conn.createStatement();
 	    log.log(Level.INFO,"Statement established");
 	    // Fetch table
-	    String query = "INSERT INTO "+getSourceTableName()+" (Syestem, SequenceNumber, SequenceName, Checksum) VALUES("+System+","+SequenceNumber+", "+SequenceName+","+checksum+")";
+	    String query = "INSERT INTO "+getSourceTableName()+" (System, SequenceNumber, SequenceName, Checksum) VALUES('"+System+"','"+SequenceNumber+"', '"+SequenceName+"','"+checksum+"')";
 	    log.log(Level.INFO,"Query to execute: " + query);
 	    s.execute(query);
 	    ResultSet rs = s.getResultSet();
